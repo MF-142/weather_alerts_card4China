@@ -37,6 +37,42 @@ export function storageKey(scope: string): string {
   return STORAGE_KEY_PREFIX + scope;
 }
 
+/** Config subset that determines a card's dismissal scope. */
+export interface ScopeConfig {
+  entity?: string;
+  entities?: string[];
+  device?: string;
+}
+
+/**
+ * The dismissal-scope source tokens for a card config: primary entity, any
+ * extra entities, and the device id (prefixed). The card and editor MUST both
+ * derive their scope from this single helper — if they diverge, the editor
+ * loads/clears the wrong storage key and the "restore all" UI silently fails.
+ * In particular a device-mode CAP card has no `entity`, so a tokeniser that
+ * ignores `device` produces an empty scope and never surfaces dismissals.
+ */
+export function configuredScopeTokens(config: ScopeConfig | undefined): string[] {
+  if (!config) return [];
+  const tokens: string[] = [];
+  if (config.entity) tokens.push(config.entity);
+  if (config.entities) {
+    for (const id of config.entities) {
+      if (id) tokens.push(id);
+    }
+  }
+  if (config.device) tokens.push(`device:${config.device}`);
+  return tokens;
+}
+
+/** Scope hash for a card config, or '' when no sources are configured. */
+export function scopeHashForConfig(config: ScopeConfig | undefined): string {
+  const tokens = configuredScopeTokens(config);
+  if (tokens.length === 0) return '';
+  const [primary, ...extras] = tokens;
+  return computeScopeHash(primary, extras);
+}
+
 function safeGetStorage(): Storage | null {
   try {
     return typeof localStorage !== 'undefined' ? localStorage : null;
@@ -57,8 +93,12 @@ function notifyDismissalChange(scope: string): void {
 }
 
 /**
- * Listen for same-tab dismissal-state changes (dismiss, undo, restore-all)
- * scoped to a specific entity-set hash. Returns an unsubscribe function.
+ * Listen for dismissal-state changes (dismiss, undo, restore-all) scoped to a
+ * specific entity-set hash. Returns an unsubscribe function.
+ *
+ * Fires for both same-tab changes (via the in-page CustomEvent) and cross-tab
+ * changes (via the native `storage` event, which only fires in *other* tabs),
+ * so dismissing in one tab updates the dashboard open in another.
  */
 export function subscribeToDismissalChanges(
   scope: string,
@@ -70,8 +110,19 @@ export function subscribeToDismissalChanges(
     if (!detail || detail.scope !== scope) return;
     handler();
   };
+  const key = storageKey(scope);
+  const storageListener = (ev: StorageEvent) => {
+    // ev.key === null when storage was cleared wholesale; otherwise only react
+    // to our own scoped key so unrelated writes don't churn every card.
+    if (ev.key !== null && ev.key !== key) return;
+    handler();
+  };
   window.addEventListener(DISMISSALS_CHANGED_EVENT, listener);
-  return () => window.removeEventListener(DISMISSALS_CHANGED_EVENT, listener);
+  window.addEventListener('storage', storageListener);
+  return () => {
+    window.removeEventListener(DISMISSALS_CHANGED_EVENT, listener);
+    window.removeEventListener('storage', storageListener);
+  };
 }
 
 export function loadDismissals(

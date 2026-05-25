@@ -5,7 +5,7 @@ import { HomeAssistant, WeatherAlertsCardConfig, AlertSeverity, ContrastMode, En
 import { canHandleAny, ENTITY_NAME_PATTERNS } from './adapters';
 import { resolveDeviceAlertEntities, subscribeEntityRegistry } from './registry';
 import { t } from './localize';
-import { computeScopeHash, loadDismissals, restoreAll, subscribeToDismissalChanges } from './dismissal';
+import { scopeHashForConfig, loadDismissals, restoreAll, subscribeToDismissalChanges } from './dismissal';
 
 @customElement('weather-alerts-card-editor')
 export class WeatherAlertsCardEditor extends LitElement {
@@ -52,6 +52,12 @@ export class WeatherAlertsCardEditor extends LitElement {
   }
 
   private _maybeSubscribeRegistry(): void {
+    // Only the device-mode hint reads the entity registry. Don't subscribe
+    // (and refetch the whole registry on every update) for plain entity cards.
+    if (!this._config?.device) {
+      this._teardownRegistrySubscription();
+      return;
+    }
     const conn = this.hass?.connection;
     if (!conn || conn === this._subscribedRegistryConn) return;
     this._unsubscribeRegistry?.();
@@ -99,11 +105,19 @@ export class WeatherAlertsCardEditor extends LitElement {
   }
 
   private _cachedHass?: HomeAssistant;
+  private _cachedConfigKey?: string;
   private _cachedEntityIds?: string[];
 
   private _getMatchingEntityIds(): string[] {
-    if (this._cachedHass === this.hass && this._cachedEntityIds) return this._cachedEntityIds;
+    // Cache is keyed on both hass identity AND the configured entity set:
+    // editing config while hass is unchanged must still surface a newly
+    // configured entity in the list.
+    const configKey = this._getSelectedEntities().join(',');
+    if (this._cachedHass === this.hass && this._cachedConfigKey === configKey && this._cachedEntityIds) {
+      return this._cachedEntityIds;
+    }
     this._cachedHass = this.hass;
+    this._cachedConfigKey = configKey;
     const ids: string[] = [];
     for (const [id, entity] of Object.entries(this.hass.states)) {
       if (!id.startsWith('sensor.') && !id.startsWith('binary_sensor.')) continue;
@@ -456,10 +470,11 @@ export class WeatherAlertsCardEditor extends LitElement {
   }
 
   private _currentScopeHash(): string {
-    const ids = this._getSelectedEntities();
-    if (ids.length === 0) return '';
-    const [primary, ...extras] = ids;
-    return computeScopeHash(primary, extras);
+    // Must match the card's scope exactly (entity + entities + device), or the
+    // restore-all UI reads the wrong storage key. Notably, a device-mode CAP
+    // card has no `entity`, so omitting `device` here yields an empty scope and
+    // the dismissed-count/restore-all status never appears.
+    return scopeHashForConfig(this._config);
   }
 
   private _getDismissedCount(): number {

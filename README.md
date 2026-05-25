@@ -14,8 +14,9 @@ A custom Home Assistant Lovelace card for displaying weather alerts with severit
 - **BoM phase badges** — New, Updated, Renewed lifecycle indicators
 - **Compact layout** — collapsed single-row alerts with progress bars that expand on tap
 - **Zone filtering (BoM)** — show only alerts for specific `area_id` zones
+- **Dismissable alerts** — optional per-alert dismiss (button or swipe) with undo and a restore-all control, stored browser-locally
 - **Sort order** — default, onset time, or severity
-- **Severity threshold** — minimum severity to display
+- **Severity threshold** — minimum severity to display (unclassified alerts always shown)
 - **Localized UI** — English, French, Spanish, Italian, and German; auto-detected from Home Assistant locale
 - **Visual config** — no YAML editing required
 
@@ -54,7 +55,7 @@ Then click the Download button, and click Reload when prompted.
 | `title` | — | Card header title |
 | `zones` | — | BoM `area_id` codes to filter (e.g. `NSW_FL049`) |
 | `sortOrder` | `'default'` | `'default'`, `'onset'`, `'severity'` |
-| `minSeverity` | `'all'` | `'all'`, `'minor'`, `'moderate'`, `'severe'`, `'extreme'` |
+| `minSeverity` | `'all'` | `'all'`, `'minor'`, `'moderate'`, `'severe'`, `'extreme'`. Alerts whose severity is unknown/unclassified are always shown, regardless of this threshold |
 | `colorTheme` | `'severity'` | `'severity'`, `'nws'`, `'meteoalarm'`, `'eccc'` — `'eccc'` uses ECCC's published `red`/`orange`/`yellow`/`grey` palette (matches weather.gc.ca); falls back to the canonical severity tier for non-ECCC alerts displayed under this theme |
 | `enhanceContrast` | `'subtle'` | `'off'`, `'subtle'`, `'strict'` — boost foreground colors for NWS/MeteoAlarm events whose raw hex reads poorly against the active theme's card background, applied per event, per theme mode, and only in the direction where it fails. `'subtle'` (default) uses a text tier (~2:1 for icon/label) and a stricter progress tier (~1.3:1 for progress-bar fill, which catches near-invisible tints like yellow Tornado Watch). `'strict'` tightens both tiers (text ~3:1, progress ~2:1) toward WCAG AA-ish guarantees. `'off'` always renders raw theme hex values. Events that already read cleanly (e.g. Tornado Warning) render unchanged in all modes. |
 | `eventCodes` | — | Event codes to include, e.g. `['SVR', 'TOR']` (NWS) or `['31', '95']` (DWD) |
@@ -75,6 +76,10 @@ Then click the Download button, and click Reload when prompted.
 | `fontSize` | `'default'` | `'small'`, `'default'`, `'large'`, `'x-large'` — scales text and icons |
 | `reformatText` | `true` | Strip hard line wraps from alert text (NWS 69-char teletype breaks) while preserving paragraph breaks |
 | `layout` | `'default'` | `'default'` or `'compact'` |
+| `allowDismiss` | `false` | Let users dismiss individual alerts (browser-local). Adds a × button and/or swipe gesture |
+| `dismissTrigger` | `'button'` | `'button'`, `'swipe'`, or `'both'` — how an alert is dismissed (swipe covers touch + mouse drag). Requires `allowDismiss` |
+| `dismissButtonStyle` | `'icon'` | `'icon'` or `'labeled'` (icon + "Dismiss" text). No effect when `dismissTrigger: 'swipe'`; compact layout is always icon-only |
+| `showDismissUndo` | `true` | Show an Undo toast when an alert is dismissed. No effect when `allowDismiss` is off |
 
 <details>
 <summary><strong>Examples</strong></summary>
@@ -260,7 +265,7 @@ Severity and certainty badges are always localized to your configured language. 
 | BoM | Inferred (parsed from title/type/group) | Absent |
 | MeteoAlarm | Raw (from `awareness_level` or `severity`) | Raw (from `certainty`) |
 | DWD | Raw (from integer `level`) | Absent |
-| ECCC | Inferred (max of `color`/`type`/`impact`) | Raw (from `confidence` field) |
+| ECCC | Derived (max of `color`, `type`, `impact`; tilde only when all three absent) | Mapped from `confidence` (High → Likely, Moderate → Possible, Low → Unlikely) |
 | PirateWeather | Raw (from `severity` field) | Absent |
 | CAP Alerts | Raw (from `severity_normalized` / `severity`) | Raw (from `certainty` field) |
 
